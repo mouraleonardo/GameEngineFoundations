@@ -1,80 +1,168 @@
-﻿using System;                         // Import basic system functionalities
-using OpenTK;                          // Import OpenTK library for graphics, math, and windowing
-using OpenTK.Windowing.Common;
-using OpenTK.Windowing.Desktop;        // Import OpenTK classes for desktop window creation and management
-using OpenTK.Graphics.OpenGL;
+﻿using System;
+using OpenTK;
 using OpenTK.Mathematics;
+using OpenTK.Windowing.Desktop;
+using OpenTK.Graphics.OpenGL;
+using OpenTK.Windowing.Common;
 
 namespace WindowEngine
 {
-    // Game class inherits from GameWindow, which provides a window and a game loop
     public class Game : GameWindow
     {
-        // Constructor for the Game class
+        private int vertexBufferHandle;
+        private int shaderProgramHandle;
+        private int vertexArrayHandle;
+
+        // Constructor
         public Game()
-            // Call the base class constructor (GameWindow) with default settings
             : base(GameWindowSettings.Default, NativeWindowSettings.Default)
         {
-            // You could initialize game-specific variables or settings here
-            // Example: setting window title, size, or other properties
+            // Set window size to 1280x768
+            this.Size = new Vector2i(1280, 768);
 
-            // Centers the game window on the screen with a specified size
-            // 'new Vector2i(1280, 768)' defines the width and height of the window in pixels
-            // 'CenterWindow' is likely a custom or utility method that positions the window 
-            // so it appears in the middle of the user's display instead of at the default top-left
-            this.CenterWindow(new Vector2i(1280, 768));
-
-
+            // Center the window on the screen
+            this.CenterWindow(this.Size);
         }
 
-        // Additional methods like OnLoad, OnUpdateFrame, OnRenderFrame, etc., can be added here
-        // to define game behavior, input handling, and rendering logic
-
-        // Called when the game window is closing or resources need to be released
-        protected override void OnUnload()
+        // Called automatically whenever the window is resized
+        protected override void OnResize(ResizeEventArgs e)
         {
-            // Call the base class method to ensure any built-in cleanup is performed
-            base.OnUnload();
-
-            // You can release your custom resources here, e.g., textures, shaders, buffers
-            // Example: texture.Dispose(); shader.Dispose();
-            // This ensures there are no memory leaks or dangling resources
+            // Update the OpenGL viewport to match the new window dimensions
+            GL.Viewport(0, 0, e.Width, e.Height);
+            base.OnResize(e);
         }
 
-        // Called every frame to update game logic, physics, or input handling
+        // Called once when the game starts, ideal for loading resources
+        protected override void OnLoad()
+        {
+            base.OnLoad();
+
+            // Set the background color (RGBA)
+            GL.ClearColor(new Color4(0.5f, 0.7f, 0.8f, 1f));
+
+            // Define a simple triangle in normalized device coordinates (NDC)
+            float[] vertices = new float[]
+            {
+                0.0f,  0.5f, 0.0f,   // Top vertex
+               -0.5f, -0.5f, 0.0f,   // Bottom-left vertex
+                0.5f, -0.5f, 0.0f    // Bottom-right vertex
+            };
+
+            // Generate a Vertex Buffer Object (VBO) to store vertex data on GPU
+            vertexBufferHandle = GL.GenBuffer();
+            GL.BindBuffer(BufferTarget.ArrayBuffer, vertexBufferHandle);
+            GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
+            GL.BindBuffer(BufferTarget.ArrayBuffer, 0); // Unbind to prevent accidental modifications
+
+            // Generate a Vertex Array Object (VAO) to store the VBO configuration
+            vertexArrayHandle = GL.GenVertexArray();
+            GL.BindVertexArray(vertexArrayHandle);
+
+            // Bind the VBO and define the layout of vertex data for shaders
+            GL.BindBuffer(BufferTarget.ArrayBuffer, vertexBufferHandle);
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0);
+            GL.EnableVertexAttribArray(0);
+            GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
+            GL.BindVertexArray(0);
+
+            // Vertex shader: positions each vertex
+            string vertexShaderCode = @"
+                #version 330 core
+                layout(location = 0) in vec3 aPosition; // Vertex position input
+
+                void main()
+                {
+                    gl_Position = vec4(aPosition, 1.0); // Convert vec3 to vec4 for output
+                }
+            ";
+
+            // Fragment shader: outputs a single color
+            string fragmentShaderCode = @"
+                #version 330 core
+                out vec4 FragColor;
+
+                void main()
+                {
+                    FragColor = vec4(0.6f, 0.2f, 0.8f, 1.0f); // Orange-red color
+                }
+            ";
+
+            // Compile shaders
+            int vertexShaderHandle = GL.CreateShader(ShaderType.VertexShader);
+            GL.ShaderSource(vertexShaderHandle, vertexShaderCode);
+            GL.CompileShader(vertexShaderHandle);
+            CheckShaderCompile(vertexShaderHandle, "Vertex Shader");
+
+            int fragmentShaderHandle = GL.CreateShader(ShaderType.FragmentShader);
+            GL.ShaderSource(fragmentShaderHandle, fragmentShaderCode);
+            GL.CompileShader(fragmentShaderHandle);
+            CheckShaderCompile(fragmentShaderHandle, "Fragment Shader");
+
+            // Create shader program and link shaders
+            shaderProgramHandle = GL.CreateProgram();
+            GL.AttachShader(shaderProgramHandle, vertexShaderHandle);
+            GL.AttachShader(shaderProgramHandle, fragmentShaderHandle);
+            GL.LinkProgram(shaderProgramHandle);
+
+            // Cleanup shaders after linking (no longer needed individually)
+            GL.DetachShader(shaderProgramHandle, vertexShaderHandle);
+            GL.DetachShader(shaderProgramHandle, fragmentShaderHandle);
+            GL.DeleteShader(vertexShaderHandle);
+            GL.DeleteShader(fragmentShaderHandle);
+        }
+
+        // Called every frame to update game logic
         protected override void OnUpdateFrame(FrameEventArgs args)
         {
-          
-            // Call the base class method to maintain any internal update functionality
             base.OnUpdateFrame(args);
-
-            // args.Time provides the time elapsed since the last frame
-            // You can use it to make movement or animations frame-rate independent
-            // Example: position += speed * (float)args.Time;
-
-            // Handle input, AI logic, collision detection, or any game state updates here
+            // Handle input, animations, physics, AI, etc.
         }
 
-        // Called every frame to render the game visuals
+        // Called every frame to render graphics
         protected override void OnRenderFrame(FrameEventArgs args)
         {
-            // Call the base class method to maintain any built-in rendering functionality
             base.OnRenderFrame(args);
 
-            // 1️⃣ Set the background color to a teal-ish color
-            GL.ClearColor(new Color4(0.2f, 0.4f, 0.5f, 1f));
-
-            // 2️⃣ Clear the color buffer to apply the background color
+            // Clear the screen with background color
             GL.Clear(ClearBufferMask.ColorBufferBit);
 
-            // At this point, the window is filled with the background color
-            // You could draw shapes, models, or other objects here
+            // Use our shader program
+            GL.UseProgram(shaderProgramHandle);
 
-            // Swap the buffers to display the current frame on the screen
+            // Bind the VAO and draw the triangle
+            GL.BindVertexArray(vertexArrayHandle);
+            GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
+            GL.BindVertexArray(0);
+
+            // Display the rendered frame
             SwapBuffers();
         }
 
+        // Called when the game is closing or resources need to be released
+        protected override void OnUnload()
+        {
+            // Unbind and delete buffers and shader program
+            GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
+            GL.DeleteBuffer(vertexBufferHandle);
 
+            GL.BindVertexArray(0);
+            GL.DeleteVertexArray(vertexArrayHandle);
 
+            GL.UseProgram(0);
+            GL.DeleteProgram(shaderProgramHandle);
+
+            base.OnUnload();
+        }
+
+        // Helper function to check for shader compilation errors
+        private void CheckShaderCompile(int shaderHandle, string shaderName)
+        {
+            GL.GetShader(shaderHandle, ShaderParameter.CompileStatus, out int success);
+            if (success == 0)
+            {
+                string infoLog = GL.GetShaderInfoLog(shaderHandle);
+                Console.WriteLine($"Error compiling {shaderName}: {infoLog}");
+            }
+        }
     }
 }
