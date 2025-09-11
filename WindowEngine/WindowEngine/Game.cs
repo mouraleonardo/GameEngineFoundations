@@ -14,9 +14,13 @@ namespace WindowEngine
 
         private int modelLoc, viewLoc, projLoc;
 
-        private float rotationAngle = 0f;
-        private float scaleFactor = 1f;
-        private bool scalingUp = true;
+        // Arrays to store transformation state for each triangle
+        private float[] rotationAngles;
+        private float[] scaleFactors;
+        private bool[] scalingUp;
+
+        // Number of triangles
+        private const int TriangleCount = 3;
 
         public Game()
             : base(GameWindowSettings.Default, NativeWindowSettings.Default)
@@ -37,7 +41,7 @@ namespace WindowEngine
 
             GL.ClearColor(new Color4(0.5f, 0.7f, 0.8f, 1f));
 
-            // Define a simple triangle in normalized device coordinates
+            // Define a single triangle in normalized device coordinates
             float[] vertices = new float[]
             {
                 0.0f,  0.5f, 0.0f,   // Top vertex
@@ -45,13 +49,12 @@ namespace WindowEngine
                 0.5f, -0.5f, 0.0f    // Bottom-right vertex
             };
 
-            // Generate VBO (vertex buffer object) and store vertex data on GPU
+            // Generate VBO and VAO
             vertexBufferHandle = GL.GenBuffer();
             GL.BindBuffer(BufferTarget.ArrayBuffer, vertexBufferHandle);
             GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
             GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
 
-            // Generate VAO (vertex array object) to store VBO configuration
             vertexArrayHandle = GL.GenVertexArray();
             GL.BindVertexArray(vertexArrayHandle);
 
@@ -61,7 +64,7 @@ namespace WindowEngine
             GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
             GL.BindVertexArray(0);
 
-            // Vertex shader now uses model, view, and projection matrices
+            // Vertex shader with model, view, projection matrices
             string vertexShaderCode = @"
                 #version 330 core
                 layout(location = 0) in vec3 aPosition;
@@ -76,7 +79,6 @@ namespace WindowEngine
                 }
             ";
 
-            // Simple fragment shader with fixed color
             string fragmentShaderCode = @"
                 #version 330 core
                 out vec4 FragColor;
@@ -87,7 +89,6 @@ namespace WindowEngine
                 }
             ";
 
-            // Compile shaders
             int vertexShaderHandle = GL.CreateShader(ShaderType.VertexShader);
             GL.ShaderSource(vertexShaderHandle, vertexShaderCode);
             GL.CompileShader(vertexShaderHandle);
@@ -98,7 +99,6 @@ namespace WindowEngine
             GL.CompileShader(fragmentShaderHandle);
             CheckShaderCompile(fragmentShaderHandle, "Fragment Shader");
 
-            // Create shader program and link shaders
             shaderProgramHandle = GL.CreateProgram();
             GL.AttachShader(shaderProgramHandle, vertexShaderHandle);
             GL.AttachShader(shaderProgramHandle, fragmentShaderHandle);
@@ -109,29 +109,45 @@ namespace WindowEngine
             GL.DeleteShader(vertexShaderHandle);
             GL.DeleteShader(fragmentShaderHandle);
 
-            // Get uniform locations for model, view, and projection matrices
+            // Get uniform locations
             modelLoc = GL.GetUniformLocation(shaderProgramHandle, "uModel");
             viewLoc = GL.GetUniformLocation(shaderProgramHandle, "uView");
             projLoc = GL.GetUniformLocation(shaderProgramHandle, "uProj");
+
+            // Initialize transformation arrays for multiple triangles
+            rotationAngles = new float[TriangleCount];
+            scaleFactors = new float[TriangleCount];
+            scalingUp = new bool[TriangleCount];
+
+            for (int i = 0; i < TriangleCount; i++)
+            {
+                rotationAngles[i] = i * 0.5f; // stagger initial rotations
+                scaleFactors[i] = 1f;
+                scalingUp[i] = true;
+            }
         }
 
         protected override void OnUpdateFrame(FrameEventArgs args)
         {
             base.OnUpdateFrame(args);
 
-            // Update rotation angle over time
-            rotationAngle += (float)args.Time;
+            // Update rotation and scale for each triangle independently
+            for (int i = 0; i < TriangleCount; i++)
+            {
+                // Rotate continuously
+                rotationAngles[i] += (float)args.Time * (i + 1); // different speed for each triangle
 
-            // Update scaling factor to oscillate between 0.5 and 1.5
-            if (scalingUp)
-            {
-                scaleFactor += (float)args.Time;
-                if (scaleFactor >= 1.5f) scalingUp = false;
-            }
-            else
-            {
-                scaleFactor -= (float)args.Time;
-                if (scaleFactor <= 0.5f) scalingUp = true;
+                // Oscillating scale between 0.5 and 1.5
+                if (scalingUp[i])
+                {
+                    scaleFactors[i] += (float)args.Time;
+                    if (scaleFactors[i] >= 1.5f) scalingUp[i] = false;
+                }
+                else
+                {
+                    scaleFactors[i] -= (float)args.Time;
+                    if (scaleFactors[i] <= 0.5f) scalingUp[i] = true;
+                }
             }
         }
 
@@ -142,21 +158,8 @@ namespace WindowEngine
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
             GL.UseProgram(shaderProgramHandle);
 
-            // Create rotation quaternion around Y axis
-            Quaternion rotation = Quaternion.FromAxisAngle(Vector3.UnitY, rotationAngle);
-            Matrix4 rotationMatrix = Matrix4.CreateFromQuaternion(rotation);
-
-            // Create scaling matrix
-            Matrix4 scaleMatrix = Matrix4.CreateScale(scaleFactor);
-
-            // Create translation matrix (move back along Z)
-            Matrix4 translationMatrix = Matrix4.CreateTranslation(0f, 0f, -2f);
-
-            // Combine transformations: Model = Translation * Rotation * Scale
-            Matrix4 model = scaleMatrix * rotationMatrix * translationMatrix;
-
             // View matrix (camera looking at origin)
-            Matrix4 view = Matrix4.LookAt(new Vector3(0, 0, 3), Vector3.Zero, Vector3.UnitY);
+            Matrix4 view = Matrix4.LookAt(new Vector3(0, 0, 5), Vector3.Zero, Vector3.UnitY);
 
             // Projection matrix (perspective)
             Matrix4 projection = Matrix4.CreatePerspectiveFieldOfView(
@@ -166,16 +169,35 @@ namespace WindowEngine
                 100f
             );
 
-            // Send matrices to the shader
-            GL.UniformMatrix4(modelLoc, false, ref model);
+            // Send view and projection to shader (same for all triangles)
             GL.UniformMatrix4(viewLoc, false, ref view);
             GL.UniformMatrix4(projLoc, false, ref projection);
 
-            // Draw the triangle
             GL.BindVertexArray(vertexArrayHandle);
-            GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
-            GL.BindVertexArray(0);
 
+            for (int i = 0; i < TriangleCount; i++)
+            {
+                // Rotation quaternion for this triangle
+                Quaternion rotation = Quaternion.FromAxisAngle(Vector3.UnitY, rotationAngles[i]);
+                Matrix4 rotationMatrix = Matrix4.CreateFromQuaternion(rotation);
+
+                // Scaling
+                Matrix4 scaleMatrix = Matrix4.CreateScale(scaleFactors[i]);
+
+                // Translation: spread triangles along X axis
+                Matrix4 translationMatrix = Matrix4.CreateTranslation(-2f + i * 2f, 0f, 0f);
+
+                // Combine transformations: Model = Translation * Rotation * Scale
+                Matrix4 model = scaleMatrix * rotationMatrix * translationMatrix;
+
+                // Send model matrix to shader
+                GL.UniformMatrix4(modelLoc, false, ref model);
+
+                // Draw the triangle
+                GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
+            }
+
+            GL.BindVertexArray(0);
             SwapBuffers();
         }
 
