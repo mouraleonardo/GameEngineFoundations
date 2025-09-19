@@ -1,5 +1,4 @@
-﻿
-using System;
+﻿using System;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Graphics.OpenGL;
@@ -9,16 +8,16 @@ namespace WindowEngine
 {
     public class Game : GameWindow
     {
-        private int vboHandle; // Vertex Buffer Object handle
-        private int vaoHandle; // Vertex Array Object handle
-        private int shaderProgramHandle; // Shader program handle
+        private int vboHandle; // Vertex Buffer Object
+        private int vaoHandle; // Vertex Array Object
+        private int eboHandle; // Element Buffer Object
+        private int shaderProgramHandle; // Shader Program
 
         private int modelLoc, viewLoc, projLoc; // Uniform locations
 
         public Game()
             : base(GameWindowSettings.Default, NativeWindowSettings.Default)
         {
-            // Set window size and center it on the screen
             this.Size = new Vector2i(1280, 768);
             this.CenterWindow(this.Size);
         }
@@ -26,49 +25,53 @@ namespace WindowEngine
         protected override void OnLoad()
         {
             base.OnLoad();
-
-            // Set background color (clear color)
             GL.ClearColor(0.5f, 0.7f, 0.8f, 1f);
 
-            // Define 6 vertices (two triangles) for a square
-            // Format: position(x,y,z) + color(r,g,b)
+            // Define 4 unique vertices for a square (position + color)
             float[] vertices = new float[]
             {
-                // Triangle 1
                 -0.5f,  0.5f, 0f,   1f, 0f, 0f,   // top-left, red
                 -0.5f, -0.5f, 0f,   0f, 1f, 0f,   // bottom-left, green
-                 0.5f,  0.5f, 0f,   0f, 0f, 1f,   // top-right, blue
-
-                // Triangle 2
-                -0.5f, -0.5f, 0f,   0f, 1f, 0f,   // bottom-left, green
-                 0.5f, -0.5f, 0f,   1f, 1f, 0f,   // bottom-right, yellow
-                 0.5f,  0.5f, 0f,   0f, 0f, 1f    // top-right, blue
+                 0.5f, -0.5f, 0f,   0f, 0f, 1f,   // bottom-right, blue
+                 0.5f,  0.5f, 0f,   1f, 1f, 0f    // top-right, yellow
             };
 
-            // Create Vertex Buffer Object (VBO)
+            // Indices to form two triangles: 0-1-2 and 0-2-3
+            uint[] indices = new uint[]
+            {
+                0, 1, 2,   // first triangle
+                0, 2, 3    // second triangle
+            };
+
+            // Generate and bind VBO
             vboHandle = GL.GenBuffer();
             GL.BindBuffer(BufferTarget.ArrayBuffer, vboHandle);
             GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
 
-            // Create Vertex Array Object (VAO)
+            // Generate and bind EBO
+            eboHandle = GL.GenBuffer();
+            GL.BindBuffer(BufferTarget.ElementArrayBuffer, eboHandle);
+            GL.BufferData(BufferTarget.ElementArrayBuffer, indices.Length * sizeof(uint), indices, BufferUsageHint.StaticDraw);
+
+            // Generate VAO
             vaoHandle = GL.GenVertexArray();
             GL.BindVertexArray(vaoHandle);
 
             GL.BindBuffer(BufferTarget.ArrayBuffer, vboHandle);
+            GL.BindBuffer(BufferTarget.ElementArrayBuffer, eboHandle); // bind EBO to VAO
 
-            // Position attribute (location = 0)
+            // Position attribute
             GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), 0);
             GL.EnableVertexAttribArray(0);
 
-            // Color attribute (location = 1)
+            // Color attribute
             GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), 3 * sizeof(float));
             GL.EnableVertexAttribArray(1);
 
-            // Unbind buffers for safety
-            GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
+            // Unbind VAO (EBO stays bound to VAO)
             GL.BindVertexArray(0);
 
-            // Vertex shader: applies model-view-projection transformations and passes color to fragment shader
+            // Vertex shader
             string vertexShaderCode = @"
                 #version 330 core
                 layout(location = 0) in vec3 aPosition;
@@ -83,11 +86,11 @@ namespace WindowEngine
                 void main()
                 {
                     gl_Position = uProj * uView * uModel * vec4(aPosition, 1.0);
-                    vertexColor = aColor; // pass vertex color to fragment shader
+                    vertexColor = aColor;
                 }
             ";
 
-            // Fragment shader: outputs interpolated color
+            // Fragment shader
             string fragmentShaderCode = @"
                 #version 330 core
                 in vec3 vertexColor;
@@ -99,7 +102,7 @@ namespace WindowEngine
                 }
             ";
 
-            // Compile shaders and check for errors
+            // Compile and link shaders
             int vertexShader = GL.CreateShader(ShaderType.VertexShader);
             GL.ShaderSource(vertexShader, vertexShaderCode);
             GL.CompileShader(vertexShader);
@@ -110,7 +113,6 @@ namespace WindowEngine
             GL.CompileShader(fragmentShader);
             CheckShaderCompile(fragmentShader, "Fragment Shader");
 
-            // Link shaders into a program
             shaderProgramHandle = GL.CreateProgram();
             GL.AttachShader(shaderProgramHandle, vertexShader);
             GL.AttachShader(shaderProgramHandle, fragmentShader);
@@ -121,7 +123,6 @@ namespace WindowEngine
             GL.DeleteShader(vertexShader);
             GL.DeleteShader(fragmentShader);
 
-            // Get uniform locations for model, view, projection matrices
             modelLoc = GL.GetUniformLocation(shaderProgramHandle, "uModel");
             viewLoc = GL.GetUniformLocation(shaderProgramHandle, "uView");
             projLoc = GL.GetUniformLocation(shaderProgramHandle, "uProj");
@@ -135,28 +136,19 @@ namespace WindowEngine
 
             GL.UseProgram(shaderProgramHandle);
 
-            // Model matrix: identity (no translation, so square is centered)
-            Matrix4 model = Matrix4.Identity;
-
-            // View matrix: camera looks at origin from z = 3
+            Matrix4 model = Matrix4.Identity; // centered
             Matrix4 view = Matrix4.LookAt(new Vector3(0, 0, 3), Vector3.Zero, Vector3.UnitY);
+            Matrix4 proj = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(60f), (float)Size.X / Size.Y, 0.1f, 100f);
 
-            // Projection matrix: perspective projection
-            Matrix4 proj = Matrix4.CreatePerspectiveFieldOfView(
-                MathHelper.DegreesToRadians(60f),
-                (float)Size.X / Size.Y,
-                0.1f,
-                100f
-            );
-
-            // Send matrices to shader
             GL.UniformMatrix4(modelLoc, false, ref model);
             GL.UniformMatrix4(viewLoc, false, ref view);
             GL.UniformMatrix4(projLoc, false, ref proj);
 
-            // Bind VAO and draw the two triangles (6 vertices)
             GL.BindVertexArray(vaoHandle);
-            GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
+
+            // Draw elements using EBO
+            GL.DrawElements(PrimitiveType.Triangles, 6, DrawElementsType.UnsignedInt, 0);
+
             GL.BindVertexArray(0);
 
             SwapBuffers();
@@ -164,9 +156,9 @@ namespace WindowEngine
 
         protected override void OnUnload()
         {
-            // Clean up GPU resources
             GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
             GL.DeleteBuffer(vboHandle);
+            GL.DeleteBuffer(eboHandle);
             GL.BindVertexArray(0);
             GL.DeleteVertexArray(vaoHandle);
             GL.DeleteProgram(shaderProgramHandle);
@@ -174,7 +166,6 @@ namespace WindowEngine
             base.OnUnload();
         }
 
-        // Check shader compilation errors
         private void CheckShaderCompile(int shader, string name)
         {
             GL.GetShader(shader, ShaderParameter.CompileStatus, out int success);
