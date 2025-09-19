@@ -8,12 +8,15 @@ namespace WindowEngine
 {
     public class Game : GameWindow
     {
-        private int vboHandle; // Vertex Buffer Object
-        private int vaoHandle; // Vertex Array Object
-        private int eboHandle; // Element Buffer Object
-        private int shaderProgramHandle; // Shader Program
+        private int vboHandle;
+        private int vaoHandle;
+        private int eboHandle;
+        private int shaderProgramHandle;
 
-        private int modelLoc, viewLoc, projLoc; // Uniform locations
+        private int modelLoc, viewLoc, projLoc;
+
+        private float rotationAngle = 0f; // Angle for rotation animation
+        private float scaleFactor = 1f;   // Scaling factor
 
         public Game()
             : base(GameWindowSettings.Default, NativeWindowSettings.Default)
@@ -27,7 +30,7 @@ namespace WindowEngine
             base.OnLoad();
             GL.ClearColor(0.5f, 0.7f, 0.8f, 1f);
 
-            // Define 4 unique vertices for a square (position + color)
+            // 4 unique vertices for the square (position + color)
             float[] vertices = new float[]
             {
                 -0.5f,  0.5f, 0f,   1f, 0f, 0f,   // top-left, red
@@ -36,29 +39,25 @@ namespace WindowEngine
                  0.5f,  0.5f, 0f,   1f, 1f, 0f    // top-right, yellow
             };
 
-            // Indices to form two triangles: 0-1-2 and 0-2-3
             uint[] indices = new uint[]
             {
-                0, 1, 2,   // first triangle
-                0, 2, 3    // second triangle
+                0, 1, 2, 0, 2, 3
             };
 
-            // Generate and bind VBO
+            // Generate buffers
             vboHandle = GL.GenBuffer();
             GL.BindBuffer(BufferTarget.ArrayBuffer, vboHandle);
             GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
 
-            // Generate and bind EBO
             eboHandle = GL.GenBuffer();
             GL.BindBuffer(BufferTarget.ElementArrayBuffer, eboHandle);
             GL.BufferData(BufferTarget.ElementArrayBuffer, indices.Length * sizeof(uint), indices, BufferUsageHint.StaticDraw);
 
-            // Generate VAO
             vaoHandle = GL.GenVertexArray();
             GL.BindVertexArray(vaoHandle);
 
             GL.BindBuffer(BufferTarget.ArrayBuffer, vboHandle);
-            GL.BindBuffer(BufferTarget.ElementArrayBuffer, eboHandle); // bind EBO to VAO
+            GL.BindBuffer(BufferTarget.ElementArrayBuffer, eboHandle);
 
             // Position attribute
             GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), 0);
@@ -68,20 +67,19 @@ namespace WindowEngine
             GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), 3 * sizeof(float));
             GL.EnableVertexAttribArray(1);
 
-            // Unbind VAO (EBO stays bound to VAO)
             GL.BindVertexArray(0);
 
-            // Vertex shader
+            // Vertex shader with model transformation
             string vertexShaderCode = @"
                 #version 330 core
                 layout(location = 0) in vec3 aPosition;
                 layout(location = 1) in vec3 aColor;
 
-                out vec3 vertexColor;
-
                 uniform mat4 uModel;
                 uniform mat4 uView;
                 uniform mat4 uProj;
+
+                out vec3 vertexColor;
 
                 void main()
                 {
@@ -90,7 +88,6 @@ namespace WindowEngine
                 }
             ";
 
-            // Fragment shader
             string fragmentShaderCode = @"
                 #version 330 core
                 in vec3 vertexColor;
@@ -102,7 +99,7 @@ namespace WindowEngine
                 }
             ";
 
-            // Compile and link shaders
+            // Compile shaders
             int vertexShader = GL.CreateShader(ShaderType.VertexShader);
             GL.ShaderSource(vertexShader, vertexShaderCode);
             GL.CompileShader(vertexShader);
@@ -128,27 +125,39 @@ namespace WindowEngine
             projLoc = GL.GetUniformLocation(shaderProgramHandle, "uProj");
         }
 
+        protected override void OnUpdateFrame(FrameEventArgs args)
+        {
+            base.OnUpdateFrame(args);
+
+            // Update rotation angle and scaling factor over time
+            rotationAngle += (float)args.Time;          // rotate continuously
+            scaleFactor = 1.0f + 0.5f * (float)Math.Sin(rotationAngle); // oscillating scale
+        }
+
         protected override void OnRenderFrame(FrameEventArgs args)
         {
             base.OnRenderFrame(args);
-
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
             GL.UseProgram(shaderProgramHandle);
 
-            Matrix4 model = Matrix4.Identity; // centered
+            // Model matrix: apply scaling and rotation
+            Matrix4 model = Matrix4.CreateScale(scaleFactor) * Matrix4.CreateRotationZ(rotationAngle);
+
+            // View matrix: camera looking at origin
             Matrix4 view = Matrix4.LookAt(new Vector3(0, 0, 3), Vector3.Zero, Vector3.UnitY);
+
+            // Projection matrix: perspective
             Matrix4 proj = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(60f), (float)Size.X / Size.Y, 0.1f, 100f);
 
+            // Send matrices to shader
             GL.UniformMatrix4(modelLoc, false, ref model);
             GL.UniformMatrix4(viewLoc, false, ref view);
             GL.UniformMatrix4(projLoc, false, ref proj);
 
+            // Draw square using EBO
             GL.BindVertexArray(vaoHandle);
-
-            // Draw elements using EBO
             GL.DrawElements(PrimitiveType.Triangles, 6, DrawElementsType.UnsignedInt, 0);
-
             GL.BindVertexArray(0);
 
             SwapBuffers();
@@ -162,7 +171,6 @@ namespace WindowEngine
             GL.BindVertexArray(0);
             GL.DeleteVertexArray(vaoHandle);
             GL.DeleteProgram(shaderProgramHandle);
-
             base.OnUnload();
         }
 
