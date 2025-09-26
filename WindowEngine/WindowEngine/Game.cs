@@ -1,84 +1,79 @@
-﻿using System;                          // Basic system types like Exception, Console, etc.
-using System.Drawing;                  // For Bitmap, Color, Rectangle (used for textures)
-using System.Drawing.Imaging;          // For LockBits/PixelFormat to read bitmap data
-using System.IO;                       // For File.Exists to check texture file
-using OpenTK.Graphics.OpenGL4;         // OpenGL 4 functions (even though we target 3.3)
-using OpenTK.Windowing.Common;         // For windowing events, FrameEventArgs, ResizeEventArgs
-using OpenTK.Windowing.Desktop;        // For GameWindow and settings
-using OpenTK.Mathematics;              // For Vector types (Vector2i, etc.)
+﻿using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using OpenTK.Graphics.OpenGL4;
+using OpenTK.Windowing.Common;
+using OpenTK.Windowing.Desktop;
+using OpenTK.Windowing.GraphicsLibraryFramework;
+using OpenTK.Mathematics;
 
 namespace WindowEngine
 {
-    // Game class handles the OpenTK window and OpenGL rendering
     public class Game : IDisposable
     {
-        // Fields for window, OpenGL objects
-        private GameWindow _window;       // The main window
-        private int _shaderProgram;       // OpenGL shader program ID
-        private int _vao;                 // Vertex Array Object ID
-        private int _vbo;                 // Vertex Buffer Object ID
-        private int _texture;             // Texture ID
+        private GameWindow _window;
+        private int _shaderProgram;
+        private int _vao;
+        private int _vbo;
+        private int _texture;
 
-        // Vertex Shader (GLSL) - runs once per vertex
+        // Default wrapping and filtering
+        private TextureWrapMode wrapMode = TextureWrapMode.Repeat;
+        private TextureMinFilter minFilter = TextureMinFilter.LinearMipmapLinear;
+        private TextureMagFilter magFilter = TextureMagFilter.Linear;
+
         private readonly string VertexShaderSource = @"
 #version 330 core
-layout (location = 0) in vec3 aPos;      // vertex position (x,y,z)
-layout (location = 1) in vec2 aTexCoord; // texture coordinate (u,v)
+layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec2 aTexCoord;
 
-out vec2 TexCoord;                       // pass UV to fragment shader
+out vec2 TexCoord;
 
 void main()
 {
-    gl_Position = vec4(aPos, 1.0);       // output clip-space position
-    TexCoord = aTexCoord;                // pass texture coordinates
+    gl_Position = vec4(aPos, 1.0);
+    TexCoord = aTexCoord;
 }";
 
-        // Fragment Shader (GLSL) - runs once per pixel
         private readonly string FragmentShaderSource = @"
 #version 330 core
-out vec4 FragColor;       // output color
-in vec2 TexCoord;         // incoming texture coordinate
+out vec4 FragColor;
+in vec2 TexCoord;
 
-uniform sampler2D ourTexture; // our 2D texture
+uniform sampler2D ourTexture;
 
 void main()
 {
-    FragColor = texture(ourTexture, TexCoord); // sample texture at TexCoord
+    FragColor = texture(ourTexture, TexCoord);
 }";
 
-        // Constructor - sets up the window and hooks events
         public Game()
         {
-            // Settings for the OpenTK window
             var nativeSettings = new NativeWindowSettings()
             {
-                Size = new Vector2i(800, 600),          // window size
-                Title = "OpenGL 3.3 Textured Triangle", // window title
-                Flags = ContextFlags.ForwardCompatible  // required for core profile
+                Size = new Vector2i(800, 600),
+                Title = "OpenGL 3.3 Textured Triangle",
+                Flags = ContextFlags.ForwardCompatible
             };
 
-            // Settings for update loop
             var gameSettings = new GameWindowSettings()
             {
-                UpdateFrequency = 60.0 // update ~60 times per second
+                UpdateFrequency = 60.0
             };
 
-            // Create the GameWindow
             _window = new GameWindow(gameSettings, nativeSettings);
-
-            // Hook events to our methods
-            _window.Load += OnLoad;               // called once when window opens
-            _window.RenderFrame += OnRenderFrame; // called every frame to render
-            _window.UpdateFrame += OnUpdateFrame; // called every frame to update
-            _window.Resize += OnResize;           // called when window size changes
+            _window.Load += OnLoad;
+            _window.RenderFrame += OnRenderFrame;
+            _window.UpdateFrame += OnUpdateFrame;
+            _window.Resize += OnResize;
         }
 
-        // Called once when window loads
         private void OnLoad()
         {
-            GL.ClearColor(Color.Black); // background color
+            GL.ClearColor(Color.Black);
 
-            // Compile shaders and link them into a program
+            // Compile shaders
             int vert = CompileShader(ShaderType.VertexShader, VertexShaderSource);
             int frag = CompileShader(ShaderType.FragmentShader, FragmentShaderSource);
 
@@ -86,157 +81,151 @@ void main()
             GL.AttachShader(_shaderProgram, vert);
             GL.AttachShader(_shaderProgram, frag);
             GL.LinkProgram(_shaderProgram);
-            CheckProgram(_shaderProgram); // check linking errors
+            CheckProgram(_shaderProgram);
 
-            // We can delete shader objects after linking
             GL.DeleteShader(vert);
             GL.DeleteShader(frag);
 
-            // Define a triangle (x,y,z + u,v)
+            // Triangle vertices (x,y,z + u,v)
             float[] vertices =
             {
-                 0.0f,  0.8f, 0.0f,  0.5f, 1.0f, // top vertex
+                 0.0f,  0.8f, 0.0f,  0.5f, 1.0f, // top
                 -0.8f, -0.8f, 0.0f,  0.0f, 0.0f, // bottom left
                  0.8f, -0.8f, 0.0f,  1.0f, 0.0f  // bottom right
             };
 
-            // Generate VAO and VBO
             _vao = GL.GenVertexArray();
             _vbo = GL.GenBuffer();
 
-            // Bind VAO first
             GL.BindVertexArray(_vao);
-
-            // Bind VBO and upload vertex data
             GL.BindBuffer(BufferTarget.ArrayBuffer, _vbo);
             GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
 
-            // Tell OpenGL how to interpret position data (location 0)
             GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 5 * sizeof(float), 0);
             GL.EnableVertexAttribArray(0);
 
-            // Tell OpenGL how to interpret UV data (location 1)
             GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 5 * sizeof(float), 3 * sizeof(float));
             GL.EnableVertexAttribArray(1);
 
-            // Unbind buffers for safety
             GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
             GL.BindVertexArray(0);
 
-            // Build path to texture dynamically (portable)
+            // Load texture
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
             string texturePath = Path.Combine(baseDir, "Assets", "wall.jpg");
             _texture = LoadTexture(texturePath);
-
-            // Set the shader uniform for the texture
-            GL.UseProgram(_shaderProgram);
-            int texLoc = GL.GetUniformLocation(_shaderProgram, "ourTexture");
-            GL.Uniform1(texLoc, 0); // texture unit 0
         }
 
-        // Called every frame to handle updates (input, logic)
         private void OnUpdateFrame(FrameEventArgs e)
         {
-            if (_window.IsKeyDown(OpenTK.Windowing.GraphicsLibraryFramework.Keys.Escape))
-                _window.Close(); // close window if ESC pressed
+            if (_window.IsKeyDown(Keys.Escape))
+                _window.Close();
+
+            // Switch wrapping modes
+            if (_window.IsKeyPressed(Keys.D1)) SetWrapMode(TextureWrapMode.Repeat);
+            if (_window.IsKeyPressed(Keys.D2)) SetWrapMode(TextureWrapMode.MirroredRepeat);
+            if (_window.IsKeyPressed(Keys.D3)) SetWrapMode(TextureWrapMode.ClampToEdge);
+            if (_window.IsKeyPressed(Keys.D4)) SetWrapMode(TextureWrapMode.ClampToBorder);
+
+            // Switch filtering modes
+            if (_window.IsKeyPressed(Keys.F1)) SetFilter(TextureMinFilter.Nearest, TextureMagFilter.Nearest);
+            if (_window.IsKeyPressed(Keys.F2)) SetFilter(TextureMinFilter.LinearMipmapLinear, TextureMagFilter.Linear);
         }
 
-        // Called every frame to render
         private void OnRenderFrame(FrameEventArgs e)
         {
-            GL.Clear(ClearBufferMask.ColorBufferBit); // clear screen
+            GL.Clear(ClearBufferMask.ColorBufferBit);
 
-            GL.UseProgram(_shaderProgram);            // use shader program
-            GL.ActiveTexture(TextureUnit.Texture0);   // activate texture unit 0
-            GL.BindTexture(TextureTarget.Texture2D, _texture); // bind our texture
+            GL.UseProgram(_shaderProgram);
+            GL.ActiveTexture(TextureUnit.Texture0);
+            GL.BindTexture(TextureTarget.Texture2D, _texture);
 
-            GL.BindVertexArray(_vao);                 // bind triangle VAO
-            GL.DrawArrays(PrimitiveType.Triangles, 0, 3); // draw the triangle
+            GL.BindVertexArray(_vao);
+            GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
 
-            _window.SwapBuffers();                    // show the rendered frame
+            _window.SwapBuffers();
         }
 
-        // Called when window is resized
         private void OnResize(ResizeEventArgs e)
         {
-            GL.Viewport(0, 0, e.Width, e.Height); // update viewport to new window size
+            GL.Viewport(0, 0, e.Width, e.Height);
         }
 
-        // Run the game loop
         public void Run() => _window.Run();
 
-        // Helper method to compile a shader
         private int CompileShader(ShaderType type, string source)
         {
             int shader = GL.CreateShader(type);
             GL.ShaderSource(shader, source);
             GL.CompileShader(shader);
-
             GL.GetShader(shader, ShaderParameter.CompileStatus, out int success);
-            if (success == 0)
-                throw new Exception(GL.GetShaderInfoLog(shader)); // throw error if failed
-
+            if (success == 0) throw new Exception(GL.GetShaderInfoLog(shader));
             return shader;
         }
 
-        // Helper method to check program linking
         private void CheckProgram(int program)
         {
             GL.GetProgram(program, GetProgramParameterName.LinkStatus, out int success);
-            if (success == 0)
-                throw new Exception(GL.GetProgramInfoLog(program));
+            if (success == 0) throw new Exception(GL.GetProgramInfoLog(program));
         }
 
-        // Load a texture from file into OpenGL
         private int LoadTexture(string path)
         {
-            if (!File.Exists(path))
-                throw new FileNotFoundException($"Could not find texture file: {path}");
+            if (!File.Exists(path)) throw new FileNotFoundException($"Could not find texture file: {path}");
 
             int texId = GL.GenTexture();
             GL.BindTexture(TextureTarget.Texture2D, texId);
 
-            // Set texture parameters
-            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.Repeat);
-            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.Repeat);
-            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear);
-            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+            // Initial wrap and filter
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)wrapMode);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)wrapMode);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)minFilter);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)magFilter);
 
-            // Load the image
             using (Bitmap bmp = new Bitmap(path))
             {
-                bmp.RotateFlip(RotateFlipType.RotateNoneFlipY); // flip vertically
-
+                bmp.RotateFlip(RotateFlipType.RotateNoneFlipY);
                 var data = bmp.LockBits(
                     new Rectangle(0, 0, bmp.Width, bmp.Height),
                     ImageLockMode.ReadOnly,
-                    System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    System.Drawing.Imaging.PixelFormat.Format32bppArgb); // fully qualified
 
-                GL.TexImage2D(TextureTarget.Texture2D,
-                              0,
-                              PixelInternalFormat.Rgba,
-                              data.Width,
-                              data.Height,
-                              0,
-                              OpenTK.Graphics.OpenGL4.PixelFormat.Bgra,
-                              PixelType.UnsignedByte,
-                              data.Scan0);
+                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, data.Width, data.Height, 0,
+                              OpenTK.Graphics.OpenGL4.PixelFormat.Bgra, PixelType.UnsignedByte, data.Scan0);
 
                 bmp.UnlockBits(data);
             }
 
-            GL.GenerateMipmap(GenerateMipmapTarget.Texture2D); // generate mipmaps
+            GL.GenerateMipmap(GenerateMipmapTarget.Texture2D);
             return texId;
         }
 
-        // Clean up resources
+        // Update wrap mode live
+        private void SetWrapMode(TextureWrapMode mode)
+        {
+            wrapMode = mode;
+            GL.BindTexture(TextureTarget.Texture2D, _texture);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)wrapMode);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)wrapMode);
+        }
+
+        // Update filter mode live
+        private void SetFilter(TextureMinFilter min, TextureMagFilter mag)
+        {
+            minFilter = min;
+            magFilter = mag;
+            GL.BindTexture(TextureTarget.Texture2D, _texture);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)minFilter);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)magFilter);
+        }
+
         public void Dispose()
         {
             GL.DeleteBuffer(_vbo);
             GL.DeleteVertexArray(_vao);
             GL.DeleteTexture(_texture);
             GL.DeleteProgram(_shaderProgram);
-            _window.Dispose(); // dispose window
+            _window.Dispose();
         }
     }
 }
