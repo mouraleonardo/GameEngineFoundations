@@ -8,10 +8,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="Assets\mipmaps.png" />
     <None Remove="Assets\wall.jpg" />
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="Assets\mipmaps.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Assets\wall.jpg">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
